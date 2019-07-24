@@ -10,6 +10,8 @@ import (
 
 const privateKey = "efjACGRY#WhxARaQ_Fhgm9Vp@zq=kn2Pn8$LNeqFcm#UZ3t7h?Bn@+Z?LsyWYatw"
 
+var mongoProxy MongoProxy
+
 func handler(w http.ResponseWriter, r *http.Request) {
 	x := make([]byte, 128)
 	log.Println(r.URL.Path)
@@ -39,17 +41,12 @@ func handler(w http.ResponseWriter, r *http.Request) {
 func main() {
 	log.Println("Starting login server...")
 
-	mongoProxy, err := NewMongoProxy()
+	_, err := NewMongoProxy()
 
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	go mongoProxy.StartProcessing()
-	mongoProxy.queries <- "Hello!"
-	mongoProxy.queries <- "World!"
-	mongoProxy.queries <- "Cool stuff!"
-	mongoProxy.Shutdown()
-	//http.HandleFunc("/", handler)
-	//log.Fatalln(http.ListenAndServe(":8080", nil))
+	http.HandleFunc("/", handler)
+	log.Fatalln(http.ListenAndServe(":8080", nil))
 }
