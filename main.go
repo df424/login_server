@@ -1,13 +1,13 @@
 package main
 
 import (
-	"./Proto"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/protobuf/proto"
 	"github.com/julienschmidt/httprouter"
 	"golang.org/x/crypto/bcrypt"
 	"io"
 	"log"
+	"login_server/Proto"
 	"net/http"
 )
 
@@ -72,7 +72,42 @@ func (s *server) authenticate(w http.ResponseWriter, r *http.Request, _ httprout
 }
 
 func (s *server) createUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	body := make([]byte, 1024)
+	n, err := r.Body.Read(body)
 
+	// Not much we can do if we couldn't correctly read the data.
+	if err != io.EOF {
+		panic(err)
+	}
+
+	// Decode the protobuffer message.
+	info := &Proto.NewUserInfo{}
+	err = proto.Unmarshal(body[:n], info)
+
+	// Couldn't decode the message, nothing to do here...
+	if err != nil {
+		panic(err)
+	}
+
+	log.Println("New User Attempt", info)
+
+	// Check the db to see if the user already exists.
+	_, err = s.db.GetUser(info.Email)
+	// If we found a user we can't actually make a new one so return already exists.
+	if err == nil {
+		w.Write([]byte("User already exists."))
+		log.Println("User already exists.")
+		return
+	}
+
+	// Okay now we can create the user in teh database.
+	err = s.db.CreateUser(info)
+
+	if err != nil {
+		panic(err)
+	}
+
+	w.Write([]byte("Success!"))
 }
 
 func (s *server) defaultRoute(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {

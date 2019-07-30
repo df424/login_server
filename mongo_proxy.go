@@ -7,8 +7,13 @@ package main
 import (
 	"context"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/crypto/bcrypt"
+	"log"
+	"login_server/Proto"
+	"time"
 )
 
 // MongoProxy ... Object for interacting with mongodb server.
@@ -56,4 +61,37 @@ func (mp *MongoProxy) GetUser(email string) (User, error) {
 	result.Decode(&user)
 
 	return user, nil
+}
+
+// CreateUser ... Create a new user in the database from the given user info.
+func (mp *MongoProxy) CreateUser(info *Proto.NewUserInfo) error {
+	// Hash the users password.
+	hash, err := bcrypt.GenerateFromPassword([]byte(info.Password), 10)
+
+	if err != nil {
+		return err
+	}
+
+	dob := time.Date(int(info.DOB.Year),
+		time.Month(info.DOB.Month),
+		int(info.DOB.Day),
+		0, 0, 0, 0, time.UTC)
+
+	// Create the user object from the info.
+	user := User{
+		ID:        primitive.NewObjectID(),
+		FirstName: info.FirstName,
+		LastName:  info.LastName,
+		Email:     info.Email,
+		Password:  string(hash),
+		DOB:       primitive.NewDateTimeFromTime(dob),
+	}
+
+	result, err := mp.client.Database("userdb").Collection("users").InsertOne(context.TODO(), user)
+
+	if err == nil {
+		log.Println("New User Created: ", result.InsertedID)
+	}
+
+	return err
 }
