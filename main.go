@@ -18,6 +18,16 @@ type server struct {
 
 const privateKey = "efjACGRY#WhxARaQ_Fhgm9Vp@zq=kn2Pn8$LNeqFcm#UZ3t7h?Bn@+Z?LsyWYatw"
 
+func getSignedKey(userID string) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"status":    "OK",
+		"user":      userID,
+		"ExpiresAt": 15000,
+	})
+
+	return token.SignedString([]byte(privateKey))
+}
+
 func (s *server) authenticate(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	body := make([]byte, 256)
 	n, err := r.Body.Read(body)
@@ -55,12 +65,7 @@ func (s *server) authenticate(w http.ResponseWriter, r *http.Request, _ httprout
 	} else { // Password must have been correct.
 		log.Println("Found User:", user)
 
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"status":    "OK",
-			"ExpiresAt": 15000,
-		})
-
-		tokenStr, err := token.SignedString([]byte(privateKey))
+		tokenStr, err := getSignedKey(user.ID.String())
 
 		if err != nil {
 			log.Println(err)
@@ -101,13 +106,19 @@ func (s *server) createUser(w http.ResponseWriter, r *http.Request, _ httprouter
 	}
 
 	// Okay now we can create the user in teh database.
-	err = s.db.CreateUser(info)
+	userID, err := s.db.CreateUser(info)
 
 	if err != nil {
 		panic(err)
 	}
 
-	w.Write([]byte("Success!"))
+	tokenStr, err := getSignedKey(userID.String())
+
+	if err != nil {
+		panic(err)
+	}
+
+	w.Write([]byte(tokenStr))
 }
 
 func (s *server) defaultRoute(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {

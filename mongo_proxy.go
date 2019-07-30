@@ -64,12 +64,12 @@ func (mp *MongoProxy) GetUser(email string) (User, error) {
 }
 
 // CreateUser ... Create a new user in the database from the given user info.
-func (mp *MongoProxy) CreateUser(info *Proto.NewUserInfo) error {
+func (mp *MongoProxy) CreateUser(info *Proto.NewUserInfo) (primitive.ObjectID, error) {
 	// Hash the users password.
 	hash, err := bcrypt.GenerateFromPassword([]byte(info.Password), 10)
 
 	if err != nil {
-		return err
+		return primitive.ObjectID{}, err
 	}
 
 	dob := time.Date(int(info.DOB.Year),
@@ -89,9 +89,10 @@ func (mp *MongoProxy) CreateUser(info *Proto.NewUserInfo) error {
 
 	result, err := mp.client.Database("userdb").Collection("users").InsertOne(context.TODO(), user)
 
+	// Get the ID.
 	if err == nil {
 		log.Println("New User Created: ", result.InsertedID)
 	}
 
-	return err
+	return user.ID, err
 }
