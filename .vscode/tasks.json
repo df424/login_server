@@ -1,0 +1,27 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build login server",
+            "type": "shell",
+            "command": "go",
+            "args": [
+                "build",
+                "${workspaceFolder}\\main.go",
+                "${workspaceFolder}\\mongo_proxy.go",
+                "${workspaceFolder}\\user.go",
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "launch login server",
+            "type": "shell",
+            "command": "${workspaceFolder}\\main.exe",
+            "args": [
+            ],
+            "problemMatcher": []
+        },
+    ],
+}
