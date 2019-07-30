@@ -1,11 +1,11 @@
 package main
 
 import (
+	"./Proto"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/protobuf/proto"
 	"github.com/julienschmidt/httprouter"
-	//"golang.org/x/crypto/bcrypt"
-	"./Proto"
+	"golang.org/x/crypto/bcrypt"
 	"io"
 	"log"
 	"net/http"
@@ -45,21 +45,30 @@ func (s *server) authenticate(w http.ResponseWriter, r *http.Request, _ httprout
 		return
 	}
 
-	log.Println("Found User:", user)
+	// Now that we have the user we can check if the password is correct.
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(info.Password))
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"status":    "OK",
-		"ExpiresAt": 15000,
-	})
-
-	tokenStr, err := token.SignedString([]byte(privateKey))
-
+	// If the password was not correct...
 	if err != nil {
 		log.Println(err)
-		return
-	}
+		w.Write([]byte("CREDENTIALS REJECTED"))
+	} else { // Password must have been correct.
+		log.Println("Found User:", user)
 
-	w.Write([]byte(tokenStr))
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"status":    "OK",
+			"ExpiresAt": 15000,
+		})
+
+		tokenStr, err := token.SignedString([]byte(privateKey))
+
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		w.Write([]byte(tokenStr))
+	}
 }
 
 func (s *server) createUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
