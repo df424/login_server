@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/golang/protobuf/proto"
+	"github.com/julienschmidt/httprouter"
 	//"golang.org/x/crypto/bcrypt"
 	"./Proto"
 	"io"
@@ -10,11 +11,14 @@ import (
 	"net/http"
 )
 
+type server struct {
+	db     *MongoProxy
+	router *httprouter.Router
+}
+
 const privateKey = "efjACGRY#WhxARaQ_Fhgm9Vp@zq=kn2Pn8$LNeqFcm#UZ3t7h?Bn@+Z?LsyWYatw"
 
-var mongoProxy MongoProxy
-
-func handler(w http.ResponseWriter, r *http.Request) {
+func (s *server) authenticate(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	body := make([]byte, 256)
 	n, err := r.Body.Read(body)
 
@@ -33,8 +37,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	log.Println("Login Attempt:", info)
 
-	// Try to get the user from the mongoproxy.
-	user, err := mongoProxy.GetUser(info.Email)
+	// Try to get the user from the database.
+	user, err := s.db.GetUser(info.Email)
 
 	if err != nil {
 		log.Println(err)
@@ -58,16 +62,36 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(tokenStr))
 }
 
+func (s *server) createUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+
+}
+
+func (s *server) defaultRoute(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	log.Println("UNHANDLED ROUTE: ", r.URL)
+}
+
+func (s *server) setupRoutes() {
+	s.router.POST("/auth", s.authenticate)
+	s.router.POST("/createuser", s.createUser)
+	s.router.POST("/", s.defaultRoute)
+}
+
 func main() {
 	log.Println("Starting login server...")
 
-	var err error
-	mongoProxy, err = NewMongoProxy()
+	mp, err := NewMongoProxy()
 
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	http.HandleFunc("/", handler)
-	log.Fatalln(http.ListenAndServe(":8080", nil))
+	s := server{
+		&mp,
+		httprouter.New(),
+	}
+
+	// Setup routes must be called before we start serving.
+	s.setupRoutes()
+
+	log.Fatalln(http.ListenAndServe(":8080", s.router))
 }
