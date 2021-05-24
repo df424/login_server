@@ -19,3 +19,14 @@ type CreateUserResponse struct {
 	Reason  string
 	Token   string
 }
+
+// LoginRequest ... Data received via http during a login request.
+type LoginRequest struct {
+	Auth AuthenticationParams
+}
+
+type LoginResponse struct {
+	Success bool
+	Reason  string
+	Token   string
+}

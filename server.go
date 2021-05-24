@@ -11,6 +11,7 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/julienschmidt/httprouter"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const privateKey = "efjACGRY#WhxARaQ_Fhgm9Vp@zq=kn2Pn8$LNeqFcm#UZ3t7h?Bn@+Z?LsyWYatw"
@@ -66,51 +67,69 @@ func (ls *LoginServer) defaultRoute(w http.ResponseWriter, r *http.Request, _ ht
 }
 
 func (ls *LoginServer) authenticate(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	// body := make([]byte, 256)
-	// n, err := r.Body.Read(body)
 
-	// // Not much we can do if we couldn't correctly read the data.
-	// if err != io.EOF {
-	// 	log.Fatalln(err)
-	// }
+	select {
+	case <-r.Context().Done():
+		zap.L().Info("Request handler was cancelled by the timeout handler.")
+	default:
+		// Metrics.
+		start := time.Now()
 
-	// // Decode the protobuffer message.
-	// info := &Proto.LoginInfo{}
-	// err = proto.Unmarshal(body[:n], info)
+		// Don't let the client send more than a kilobyte.
+		r.Body = http.MaxBytesReader(w, r.Body, 1024)
 
-	// if err != nil {
-	// 	panic(err)
-	// }
+		// Create a new json decoder.
+		dec := json.NewDecoder(r.Body)
 
-	// log.Println("Login Attempt:", info)
+		// Don't let the client send fields we aren't expecting.
+		dec.DisallowUnknownFields()
 
-	// // Try to get the user from the database.
-	// user, err := s.db.GetUser(info.Email)
+		var loginReq data.LoginRequest
+		err := dec.Decode(&loginReq)
 
-	// if err != nil {
-	// 	log.Println(err)
-	// 	return
-	// }
+		// Couldn't decode the message, nothing to do here...
+		if err != nil {
+			zap.L().Error("Bad request from client", zap.Error(err))
+			http.Error(w, "Invalid request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
 
-	// // Now that we have the user we can check if the password is correct.
-	// err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(info.Password))
+		zap.L().Info("Login Attempt", zap.Any("request", loginReq))
 
-	// // If the password was not correct...
-	// if err != nil {
-	// 	log.Println(err)
-	// 	w.Write([]byte("CREDENTIALS REJECTED"))
-	// } else { // Password must have been correct.
-	// 	log.Println("Found User:", user)
+		// Create a response message.
+		resp := data.LoginResponse{Success: true, Reason: "OK"}
 
-	// 	tokenStr, err := getSignedKey(user.ID.String())
+		// Try to get the user from the database.
+		user, err := ls.db.GetUser(r.Context(), loginReq.Auth.Email)
 
-	// 	if err != nil {
-	// 		log.Println(err)
-	// 		return
-	// 	}
+		if err != nil {
+			zap.L().Info("Login Attempt Failed", zap.String("userName", loginReq.Auth.Email), zap.String("reason", "invalid user name"))
+			resp.Success = false
+			resp.Reason = "Credentials Rejected"
+		} else {
+			// Now that we have the user we can check if the password is correct.
+			err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(loginReq.Auth.Password))
 
-	// 	w.Write([]byte(tokenStr))
-	// }
+			// If the password was not correct...
+			if err != nil {
+				zap.L().Info("Login Attempt Failed", zap.String("userName", loginReq.Auth.Email), zap.String("reason", "invalid password"))
+				resp.Success = false
+				resp.Reason = "Credentials Rejected"
+			} else {
+				zap.L()
+				tokenStr, err := getSignedKey(user.ID.String())
+				if err != nil {
+					panic(err)
+				}
+				resp.Token = tokenStr
+			}
+		}
+
+		zap.L().Info("Login requests completed", zap.Duration("executionTime", time.Since(start)), zap.Any("response", resp))
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}
 }
 
 func (ls *LoginServer) createUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -140,6 +159,8 @@ func (ls *LoginServer) createUser(w http.ResponseWriter, r *http.Request, _ http
 			http.Error(w, "Invalid request: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+
+		zap.L().Info("Create User Request", zap.Any("request", createUserReq))
 
 		// Construct our response.
 		createUserResp := data.CreateUserResponse{Success: true, Reason: "OK"}
