@@ -1,152 +1,67 @@
 package main
 
 import (
-	"github.com/dgrijalva/jwt-go"
-	"github.com/golang/protobuf/proto"
-	"github.com/julienschmidt/httprouter"
-	"golang.org/x/crypto/bcrypt"
-	"io"
-	"log"
-	"login_server/Proto"
-	"net/http"
+	"flag"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
-type server struct {
-	db     *MongoProxy
-	router *httprouter.Router
+// defaultMongoURI ... Mongo uri to use if no uri is passed as a command line arg.
+const defaultMongoURI = "mongodb://localhost:27017"
+
+// defaultHTTPPort ... Default port for the api server to run on.
+const defaultHTTPPort = 8080
+
+// Args ... Command line arguments for the server.
+type Args struct {
+	HTTPPort int    `json:"HTTPPort"`
+	MongoURI string `json:"MongoURI"`
+	Debug    bool   `json:"debug"`
 }
 
-const privateKey = "efjACGRY#WhxARaQ_Fhgm9Vp@zq=kn2Pn8$LNeqFcm#UZ3t7h?Bn@+Z?LsyWYatw"
+func parseCLIArgs() Args {
+	debug := flag.Bool("debug", false, "Set to true when developing to enable readable logging.")
+	mongoURI := flag.String("mongo-uri", defaultMongoURI, "Set the URI of the mongodatabase this server should use.")
+	httpPort := flag.Int("http-port", defaultHTTPPort, "Set the Port number the server should use.")
+	flag.Parse()
 
-func getSignedKey(userID string) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"status":    "OK",
-		"user":      userID,
-		"ExpiresAt": 15000,
-	})
-
-	return token.SignedString([]byte(privateKey))
-}
-
-func (s *server) authenticate(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	body := make([]byte, 256)
-	n, err := r.Body.Read(body)
-
-	// Not much we can do if we couldn't correctly read the data.
-	if err != io.EOF {
-		log.Fatalln(err)
-	}
-
-	// Decode the protobuffer message.
-	info := &Proto.LoginInfo{}
-	err = proto.Unmarshal(body[:n], info)
-
-	if err != nil {
-		panic(err)
-	}
-
-	log.Println("Login Attempt:", info)
-
-	// Try to get the user from the database.
-	user, err := s.db.GetUser(info.Email)
-
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	// Now that we have the user we can check if the password is correct.
-	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(info.Password))
-
-	// If the password was not correct...
-	if err != nil {
-		log.Println(err)
-		w.Write([]byte("CREDENTIALS REJECTED"))
-	} else { // Password must have been correct.
-		log.Println("Found User:", user)
-
-		tokenStr, err := getSignedKey(user.ID.String())
-
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		w.Write([]byte(tokenStr))
+	return Args{
+		HTTPPort: *httpPort,
+		MongoURI: *mongoURI,
+		Debug:    *debug,
 	}
 }
 
-func (s *server) createUser(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	body := make([]byte, 1024)
-	n, err := r.Body.Read(body)
-
-	// Not much we can do if we couldn't correctly read the data.
-	if err != io.EOF {
-		panic(err)
+func configureLogging(debug bool) *zap.Logger {
+	var config zap.Config
+	if debug {
+		config = zap.NewDevelopmentConfig()
+		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	} else {
+		config = zap.NewProductionConfig()
+		config.EncoderConfig.TimeKey = "@timestamp"
+		config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 	}
 
-	// Decode the protobuffer message.
-	info := &Proto.NewUserInfo{}
-	err = proto.Unmarshal(body[:n], info)
-
-	// Couldn't decode the message, nothing to do here...
-	if err != nil {
-		panic(err)
-	}
-
-	log.Println("New User Attempt", info)
-
-	// Check the db to see if the user already exists.
-	_, err = s.db.GetUser(info.Email)
-	// If we found a user we can't actually make a new one so return already exists.
-	if err == nil {
-		w.Write([]byte("User already exists."))
-		log.Println("User already exists.")
-		return
-	}
-
-	// Okay now we can create the user in teh database.
-	userID, err := s.db.CreateUser(info)
-
-	if err != nil {
-		panic(err)
-	}
-
-	tokenStr, err := getSignedKey(userID.String())
-
-	if err != nil {
-		panic(err)
-	}
-
-	w.Write([]byte(tokenStr))
-}
-
-func (s *server) defaultRoute(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	log.Println("UNHANDLED ROUTE: ", r.URL)
-}
-
-func (s *server) setupRoutes() {
-	s.router.POST("/auth", s.authenticate)
-	s.router.POST("/createuser", s.createUser)
-	s.router.POST("/", s.defaultRoute)
+	logger, _ := config.Build()
+	return logger
 }
 
 func main() {
-	log.Println("Starting login server...")
+	// Parse environment variable arguments.
+	args := parseCLIArgs()
 
-	mp, err := NewMongoProxy()
+	// Setup global structured logging...
+	logManager := configureLogging(args.Debug)
+	zap.ReplaceGlobals(logManager)
+	// Make sure everthing gets logged before exit.
+	defer logManager.Sync()
 
-	if err != nil {
-		log.Fatalln(err)
-	}
+	// Application start print.
+	zap.S().Infow("Login Servier Application Start", zap.Any("args", args))
 
-	s := server{
-		&mp,
-		httprouter.New(),
-	}
-
-	// Setup routes must be called before we start serving.
-	s.setupRoutes()
-
-	log.Fatalln(http.ListenAndServe(":8080", s.router))
+	// Create and start the server to run forever.
+	server := NewLoginServer(args.HTTPPort, args.MongoURI)
+	zap.L().Fatal("Login Server Application Exit", zap.Error(server.Start()))
 }
