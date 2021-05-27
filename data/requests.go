@@ -27,7 +27,5 @@ type LoginRequest struct {
 
 // LoginResponse ... Data sent back via http from a successful login request.
 type LoginResponse struct {
-	Success bool
-	Reason  string
-	Token   string
+	Token string
 }

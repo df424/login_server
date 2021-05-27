@@ -96,39 +96,45 @@ func (ls *LoginServer) authenticate(w http.ResponseWriter, r *http.Request, _ ht
 
 		zap.L().Info("Login Attempt", zap.Any("request", loginReq))
 
-		// Create a response message.
-		resp := data.LoginResponse{Success: true, Reason: "OK"}
-
 		// Try to get the user from the database.
 		user, err := ls.db.GetUser(r.Context(), loginReq.Auth.Email)
 
+		// If we could not find the user.
 		if err != nil {
 			zap.L().Info("Login Attempt Failed", zap.String("userName", loginReq.Auth.Email), zap.String("reason", "invalid user name"))
-			resp.Success = false
-			resp.Reason = "Credentials Rejected"
-		} else {
-			// Now that we have the user we can check if the password is correct.
-			err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(loginReq.Auth.Password))
-
-			// If the password was not correct...
-			if err != nil {
-				zap.L().Info("Login Attempt Failed", zap.String("userName", loginReq.Auth.Email), zap.String("reason", "invalid password"))
-				resp.Success = false
-				resp.Reason = "Credentials Rejected"
-			} else {
-				zap.L()
-				tokenStr, err := getSignedKey(user.ID.String())
-				if err != nil {
-					panic(err)
-				}
-				resp.Token = tokenStr
-			}
+			http.Error(w, "Credentials Rejected", http.StatusForbidden)
+			// Nothing else to do here..
+			return
 		}
 
-		zap.L().Info("Login requests completed", zap.Duration("executionTime", time.Since(start)), zap.Any("response", resp))
+		// Now that we have the user we can check if the password is correct.
+		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(loginReq.Auth.Password))
 
+		// If the password was not correct...
+		if err != nil {
+			zap.L().Info("Login Attempt Failed", zap.String("userName", loginReq.Auth.Email), zap.String("reason", "invalid password"))
+			w.WriteHeader(http.StatusForbidden)
+			http.Error(w, "Credentials Rejected", http.StatusForbidden)
+			return
+		}
+
+		// Generate the token using the secrete key.
+		tokenStr, err := getSignedKey(user.ID.String())
+
+		// If that failed panic and let teh globale xception handler catch it.
+		if err != nil {
+			panic(err)
+		}
+
+		// Set the response in the token.
+		resp := data.LoginResponse{Token: tokenStr}
+
+		// Write the response.
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
+
+		// Log the completion of the handler.
+		zap.L().Info("Login attempt Succedded", zap.Duration("executionTime", time.Since(start)), zap.String("userName", loginReq.Auth.Email))
 	}
 }
 
