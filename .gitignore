@@ -13,3 +13,5 @@
 
 # Don't commit proto files, instead regenerate them.
 Proto
+
+__debug_bin
