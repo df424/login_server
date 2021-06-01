@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: login-server-deployment
+  labels:
+    app: login-server 
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: login-server 
+  template:
+    metadata:
+      labels:
+        app: login-server
+    spec:
+      containers:
+      - name: login-server 
+        image: df424/login_server:latest
+        command: [ "/go/src/login_server/login_server" ]
+        args: [
+          "--mongo-uri", "mongodb://192.168.0.191:27017"
+        ]
+        ports:
+        - containerPort: 8080
+      imagePullSecrets:
+      - name: regcred
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: login-server-service
+spec:
+  selector:
+    app: login-server
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: LoadBalancer

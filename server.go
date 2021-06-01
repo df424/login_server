@@ -94,7 +94,7 @@ func (ls *LoginServer) authenticate(w http.ResponseWriter, r *http.Request, _ ht
 			return
 		}
 
-		zap.L().Info("Login Attempt", zap.Any("request", loginReq))
+		zap.L().Info("Login Attempt", zap.String("userName", loginReq.Auth.Email))
 
 		// Try to get the user from the database.
 		user, err := ls.db.GetUser(r.Context(), loginReq.Auth.Email)
